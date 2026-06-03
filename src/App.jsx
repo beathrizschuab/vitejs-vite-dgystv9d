@@ -41,16 +41,18 @@ function useSupaTable(table, initFallback = []) {
     return () => { cancelled = true; };
   }, [table]);
 
+  // FIX: setData agora aceita item único OU array, e garante user_id em todos
   const setData = useCallback((valOrFn) => {
     setDataRaw(prev => {
       const next = typeof valOrFn === "function" ? valOrFn(prev) : valOrFn;
       if (uid.current) {
-        const toUpsert = Array.isArray(next)
-          ? next.map(r => ({ ...r, user_id: uid.current }))
-          : [{ ...next, user_id: uid.current }];
-        supabase.from(table).upsert(toUpsert, { onConflict: "id" }).then(() => {});
+        const toUpsert = (Array.isArray(next) ? next : [next])
+          .map(r => ({ ...r, user_id: uid.current }));
+        if (toUpsert.length > 0) {
+          supabase.from(table).upsert(toUpsert, { onConflict: "id" }).then(() => {});
+        }
       }
-      return next;
+      return Array.isArray(next) ? next : prev;
     });
   }, [table]);
 
@@ -75,7 +77,7 @@ function useSettings(defaults) {
             clinicName: row.clinic_name || defaults.clinicName,
             procedures: row.procedures || defaults.procedures,
             locations: row.locations || defaults.locations,
-            whatsappMessages: row.whatsappMessages || []
+            whatsappMessages: row.whatsapp_messages || []
           });
         }
         setLoading(false);
@@ -95,7 +97,8 @@ function useSettings(defaults) {
           clinic_name: next.clinicName,
           procedures: next.procedures,
           locations: next.locations,
-          whatsappMessages: next.whatsappMessages
+          // FIX: coluna correta no Supabase (snake_case)
+          whatsapp_messages: next.whatsappMessages
         }, { onConflict: "user_id" }).then(() => {});
       }
       return next;
@@ -117,8 +120,8 @@ function LoginScreen({ onLogin }) {
     if (!email || !password) { setError("Preencha todos os campos."); return; }
     setLoading(true); setError("");
     const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(true); 
     if (err) { setError("Acesso recusado. Verifique os dados."); setLoading(false); }
+    // FIX: não chama setLoading(true) de novo em caso de sucesso — deixa onLogin redirecionar
     else onLogin();
   }
 
@@ -128,10 +131,10 @@ function LoginScreen({ onLogin }) {
         h("h2", { style: { color: P.accent3, fontSize: 28, fontFamily: "serif" } }, "HarmonizaPro")
       ),
       h("div", { style: { marginBottom: 16 } },
-        h("input", { type: "email", placeholder: "E-mail", value: email, onChange: e => setEmail(e.target.value), style: { width: "100%", padding: 12, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8, outline: "none" } })
+        h("input", { type: "email", placeholder: "E-mail", value: email, onChange: e => setEmail(e.target.value), style: { width: "100%", padding: 12, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8, outline: "none", boxSizing: "border-box" } })
       ),
       h("div", { style: { marginBottom: 20 } },
-        h("input", { type: "password", placeholder: "Senha", value: password, onChange: e => setPassword(e.target.value), style: { width: "100%", padding: 12, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8, outline: "none" } })
+        h("input", { type: "password", placeholder: "Senha", value: password, onChange: e => setPassword(e.target.value), onKeyDown: e => e.key === "Enter" && handleLogin(), style: { width: "100%", padding: 12, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8, outline: "none", boxSizing: "border-box" } })
       ),
       error && h("div", { style: { color: P.red, fontSize: 13, marginBottom: 12 } }, error),
       h("button", { onClick: handleLogin, disabled: loading, style: { width: "100%", padding: 12, background: P.rose, color: P.accent3, border: "none", borderRadius: 8, fontWeight: 600, cursor: "pointer" } }, loading ? "Entrando..." : "Acessar Sistema")
@@ -141,35 +144,56 @@ function LoginScreen({ onLogin }) {
 
 // ─── INTERFACE COMPONENTS ───────────────────────────────────────────────────
 function Avatar({ name, size = 36 }) {
-  return createElement("div", { style: { width: size, height: size, borderRadius: "50%", background: P.rose, display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.35, fontWeight: 700, color: P.accent3, border: `1px solid ${P.border}` } }, initials(name));
+  return createElement("div", { style: { width: size, height: size, borderRadius: "50%", background: P.rose, display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.35, fontWeight: 700, color: P.accent3, border: `1px solid ${P.border}`, flexShrink: 0 } }, initials(name));
 }
-function Card({ children, style: s, onClick }) { return createElement("div", { onClick, style: { background: P.card, border: `1px solid ${P.border}`, borderRadius: 12, padding: 20, ...s } }, children); }
+function Card({ children, style: s, onClick }) {
+  return createElement("div", { onClick, style: { background: P.card, border: `1px solid ${P.border}`, borderRadius: 12, padding: 20, ...s } }, children);
+}
 function Btn({ children, onClick, variant = "primary", style: s }) {
   const bg = variant === "primary" ? P.rose : variant === "danger" ? "rgba(192,112,112,.1)" : "transparent";
   const tc = variant === "danger" ? P.red : P.accent3;
   const bd = variant === "ghost" ? `1px solid ${P.border}` : "none";
   return createElement("button", { onClick, style: { padding: "9px 16px", background: bg, color: tc, border: bd, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", ...s } }, children);
 }
+
+// FIX: Modal reescrito sem position:fixed — usa overlay normal para não causar tela branca
 function Modal({ open, onClose, title, children }) {
   if (!open) return null;
-  return createElement("div", { onClick: e => e.target === e.currentTarget && onClose(), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.8)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" } },
-    createElement("div", { style: { background: P.bg2, border: `1px solid ${P.border}`, borderRadius: 16, padding: 24, width: 480, maxWidth: "90vw" } },
-      createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 20 } },
-        createElement("h3", { style: { color: P.accent3, fontFamily: "serif", fontSize: 20 } }, title),
-        createElement("button", { onClick: onClose, style: { background: "none", border: "none", color: P.text3, fontSize: 20, cursor: "pointer" } }, "×")
-      ), children
+  const h = createElement;
+  return h("div", {
+    onClick: e => e.target === e.currentTarget && onClose(),
+    style: {
+      position: "fixed", inset: 0,
+      background: "rgba(0,0,0,.75)",
+      zIndex: 1000,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      // Garante que o overlay tenha altura para renderizar no iframe/Stackblitz
+      minHeight: "100vh",
+    }
+  },
+    h("div", {
+      onClick: e => e.stopPropagation(),
+      style: { background: P.bg2, border: `1px solid ${P.border}`, borderRadius: 16, padding: 24, width: 480, maxWidth: "90vw", maxHeight: "85vh", overflowY: "auto" }
+    },
+      h("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 20 } },
+        h("h3", { style: { color: P.accent3, fontFamily: "serif", fontSize: 20, margin: 0 } }, title),
+        h("button", { onClick: onClose, style: { background: "none", border: "none", color: P.text3, fontSize: 22, cursor: "pointer", lineHeight: 1 } }, "×")
+      ),
+      children
     )
   );
 }
 
-// ─── SIDEBAR (BUSCA CORRIGIDA SEM TELA BRANCA) ──────────────────────────────
+// ─── SIDEBAR (BUSCA CORRIGIDA) ──────────────────────────────────────────────
 function Sidebar({ page, onNav, patients = [], onSelectPatient }) {
   const h = createElement;
   const [q, setQ] = useState("");
   const [openSearch, setOpenSearch] = useState(false);
 
   const filtered = useMemo(() => {
-    if (!q) return [];
+    if (!q || q.length < 1) return [];
     return (patients || []).filter(p => p && p.name && p.name.toLowerCase().includes(q.toLowerCase()));
   }, [q, patients]);
 
@@ -186,23 +210,44 @@ function Sidebar({ page, onNav, patients = [], onSelectPatient }) {
     { k: "mensagens", l: "Mensagens WhatsApp", e: "💬" }
   ];
 
-  return h("div", { style: { width: 240, background: P.bg2, borderRight: `1px solid ${P.border}`, display: "flex", flexDirection: "column", height: "100vh" } },
+  return h("div", { style: { width: 240, minWidth: 240, background: P.bg2, borderRight: `1px solid ${P.border}`, display: "flex", flexDirection: "column", height: "100vh", position: "sticky", top: 0 } },
     h("div", { style: { padding: 20, borderBottom: `1px solid ${P.border}` } },
-      h("button", { onClick: () => setOpenSearch(true), style: { width: "100%", background: P.bg3, border: `1px solid ${P.border}`, borderRadius: 8, padding: "8px 12px", color: P.text2, fontSize: 13, textAlign: "left", cursor: "pointer" } }, "🔍 Buscar paciente..."),
-      
-      h(Modal, { open: openSearch, onClose: () => setOpenSearch(false), title: "Localizar Ficha Clínica" },
-        h("input", { type: "text", placeholder: "Digite o nome da paciente...", value: q, onChange: e => setQ(e.target.value), style: { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8, outline: "none" } }),
-        h("div", { style: { marginTop: 12, display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto" } },
-          q && filtered.length === 0 && h("div", { style: { color: P.text3, fontSize: 13, padding: 8 } }, "Nenhuma paciente encontrada."),
-          filtered.map((p, i) => h("div", { key: p.id || i, onClick: () => handleSelect(p), style: { padding: 10, background: P.bg3, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, border: `1px solid ${P.border}` } },
-            h(Avatar, { name: p.name, size: 24 }),
-            h("span", { style: { fontSize: 13.5, color: P.text } }, p.name)
-          ))
+      h("button", {
+        onClick: () => setOpenSearch(true),
+        style: { width: "100%", background: P.bg3, border: `1px solid ${P.border}`, borderRadius: 8, padding: "8px 12px", color: P.text2, fontSize: 13, textAlign: "left", cursor: "pointer" }
+      }, "🔍 Buscar paciente..."),
+
+      // FIX: Modal de busca com stopPropagation para não fechar ao digitar
+      h(Modal, { open: openSearch, onClose: () => { setOpenSearch(false); setQ(""); }, title: "Localizar Ficha Clínica" },
+        h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+          h("input", {
+            type: "text",
+            placeholder: "Digite o nome da paciente...",
+            value: q,
+            autoFocus: true,
+            onChange: e => setQ(e.target.value),
+            style: { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8, outline: "none", boxSizing: "border-box" }
+          }),
+          h("div", { style: { display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto" } },
+            q && filtered.length === 0 && h("div", { style: { color: P.text3, fontSize: 13, padding: 8 } }, "Nenhuma paciente encontrada."),
+            filtered.map((p, i) => h("div", {
+              key: p.id || i,
+              onClick: () => handleSelect(p),
+              style: { padding: 10, background: P.bg3, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, border: `1px solid ${P.border}` }
+            },
+              h(Avatar, { name: p.name, size: 28 }),
+              h("span", { style: { fontSize: 13.5, color: P.text } }, p.name)
+            ))
+          )
         )
       )
     ),
-    h("div", { style: { flex: 1, padding: 12, display: "flex", flexDirection: "column", gap: 4 } },
-      menu.map(m => h("button", { key: m.k, onClick: () => onNav(m.k), style: { display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", background: page === m.k ? P.rose : "transparent", color: P.accent3, border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", textAlign: "left" } }, h("span", null, m.e), m.l))
+    h("div", { style: { flex: 1, padding: 12, display: "flex", flexDirection: "column", gap: 4, overflowY: "auto" } },
+      menu.map(m => h("button", {
+        key: m.k,
+        onClick: () => onNav(m.k),
+        style: { display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", background: page === m.k ? P.rose : "transparent", color: P.accent3, border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", textAlign: "left" }
+      }, h("span", null, m.e), m.l))
     ),
     h("div", { style: { padding: 16, borderTop: `1px solid ${P.border}` } },
       h(Btn, { variant: "ghost", onClick: () => { supabase.auth.signOut(); window.location.reload(); }, style: { width: "100%" } }, "Sair")
@@ -213,42 +258,99 @@ function Sidebar({ page, onNav, patients = [], onSelectPatient }) {
 // ─── DASHBOARD ──────────────────────────────────────────────────────────────
 function Dashboard({ patients = [], settings }) {
   const h = createElement;
+  const totalSessions = useMemo(() => {
+    let count = 0;
+    patients.forEach(p => { if (p?.sessions) count += p.sessions.length; });
+    return count;
+  }, [patients]);
+
   return h("div", null,
     h("div", { style: { background: P.card, border: `1px solid ${P.border}`, padding: 24, borderRadius: 16, marginBottom: 20 } },
-      h("h1", { style: { fontFamily: "serif", fontSize: 28, color: P.accent3 } }, `Bem-vinda, ${settings.doctorName}`),
-      h("p", { style: { fontSize: 13, color: P.text3, marginTop: 4 } }, `${settings.clinicName} · Painel de Gestão Estética`)
+      h("h1", { style: { fontFamily: "serif", fontSize: 28, color: P.accent3, margin: 0 } }, `Bem-vinda, ${settings.doctorName}`),
+      h("p", { style: { fontSize: 13, color: P.text3, marginTop: 6, marginBottom: 0 } }, `${settings.clinicName} · Painel de Gestão Estética`)
     ),
-    h("div", { style: { display: "flex", gap: 16 } },
-      h(Card, { style: { flex: 1 } }, h("div", { style: { fontSize: 12, color: P.text3 } }, "Total Pacientes"), h("div", { style: { fontSize: 24, color: P.accent2, marginTop: 4 } }, patients.length))
+    h("div", { style: { display: "flex", gap: 16, flexWrap: "wrap" } },
+      h(Card, { style: { flex: 1, minWidth: 140 } },
+        h("div", { style: { fontSize: 12, color: P.text3 } }, "Total Pacientes"),
+        h("div", { style: { fontSize: 28, color: P.accent2, marginTop: 4, fontWeight: 600 } }, patients.length)
+      ),
+      h(Card, { style: { flex: 1, minWidth: 140 } },
+        h("div", { style: { fontSize: 12, color: P.text3 } }, "Atendimentos"),
+        h("div", { style: { fontSize: 28, color: P.accent2, marginTop: 4, fontWeight: 600 } }, totalSessions)
+      )
     )
   );
 }
 
-// ─── PACIENTES (CORRIGIDO ERRO DO ELEMENT) ───────────────────────────────────
-function Patients({ patients = [], onSelect }) {
+// ─── PACIENTES ───────────────────────────────────────────────────────────────
+function Patients({ patients = [], onSelect, onAdd }) {
   const h = createElement;
-  return h("div", null, 
-    h("h2", { style: { color: P.accent3, marginBottom: 16, fontFamily: "serif", fontSize: 24 } }, "Fichas Clínicas"), 
-    h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-      patients.map(p => h(Card, { key: p.id, onClick: () => onSelect(p), style: { cursor: "pointer", display: "flex", alignItems: "center", gap: 14 } }, 
-        h(Avatar, { name: p.name }),
-        h("div", null,
-          h("div", { style: { color: P.text, fontWeight: 600 } }, p.name),
-          h("div", { style: { color: P.text3, fontSize: 12 } }, p.phone || "Sem telefone")
+  return h("div", null,
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 } },
+      h("h2", { style: { color: P.accent3, fontFamily: "serif", fontSize: 24, margin: 0 } }, "Fichas Clínicas"),
+    ),
+    patients.length === 0
+      ? h(Card, null, h("p", { style: { color: P.text3, textAlign: "center", margin: 0 } }, "Nenhuma paciente cadastrada."))
+      : h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+          patients.map(p => h(Card, {
+            key: p.id,
+            onClick: () => onSelect(p),
+            style: { cursor: "pointer", display: "flex", alignItems: "center", gap: 14, transition: "background .15s" }
+          },
+            h(Avatar, { name: p.name }),
+            h("div", null,
+              h("div", { style: { color: P.text, fontWeight: 600 } }, p.name),
+              h("div", { style: { color: P.text3, fontSize: 12, marginTop: 2 } }, p.phone || "Sem telefone")
+            )
+          ))
         )
-      ))
-    )
   );
 }
 
-// ─── DETALHE DO PRONTUÁRIO (CORRIGIDO) ───────────────────────────────────────
+// ─── DETALHE DO PRONTUÁRIO (CORRIGIDO — não retorna null) ─────────────────────
 function PatientDetail({ patient, onBack }) {
   const h = createElement;
-  return h("div", null, 
-    h(Btn, { onClick: onBack, variant: "ghost", style: { marginBottom: 16 } }, "← Voltar para Lista"), 
-    h(Card, null, 
-      h("h3", { style: { color: P.accent3, fontFamily: "serif", fontSize: 22, marginBottom: 12 } }, `Prontuário: ${patient.name}`),
-      h("p", { style: { color: P.text2, fontSize: 14 } }, `Contato: ${patient.phone || "Não informado"}`)
+
+  // FIX: guarda o paciente em estado local para nunca perder a referência
+  const [p] = useState(patient);
+
+  if (!p) {
+    return h("div", null,
+      h(Btn, { onClick: onBack, variant: "ghost", style: { marginBottom: 16 } }, "← Voltar para Lista"),
+      h(Card, null, h("p", { style: { color: P.text3 } }, "Paciente não encontrada."))
+    );
+  }
+
+  const sessions = p.sessions || [];
+
+  return h("div", null,
+    h(Btn, { onClick: onBack, variant: "ghost", style: { marginBottom: 16 } }, "← Voltar para Lista"),
+    h(Card, { style: { marginBottom: 16 } },
+      h("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 16 } },
+        h(Avatar, { name: p.name, size: 52 }),
+        h("div", null,
+          h("h3", { style: { color: P.accent3, fontFamily: "serif", fontSize: 22, margin: 0 } }, p.name),
+          h("p", { style: { color: P.text2, fontSize: 14, margin: "4px 0 0" } }, p.phone || "Telefone não informado"),
+          p.email && h("p", { style: { color: P.text3, fontSize: 13, margin: "2px 0 0" } }, p.email)
+        )
+      ),
+      h("div", { style: { borderTop: `1px solid ${P.border}`, paddingTop: 16 } },
+        h("div", { style: { fontSize: 13, color: P.text3, marginBottom: 8 } }, "Histórico de Sessões"),
+        sessions.length === 0
+          ? h("p", { style: { color: P.text3, fontSize: 13 } }, "Nenhuma sessão registrada.")
+          : h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+              sessions.map((s, i) => h("div", {
+                key: s.id || i,
+                style: { background: P.bg3, borderRadius: 8, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }
+              },
+                h("div", null,
+                  h("div", { style: { color: P.text, fontWeight: 600, fontSize: 14 } }, s.procedure || "Procedimento"),
+                  h("div", { style: { color: P.text3, fontSize: 12, marginTop: 2 } }, s.date || "")
+                ),
+                s.value && h("div", { style: { color: P.green, fontWeight: 600 } }, fmtCurr(s.value))
+              ))
+            )
+      )
     )
   );
 }
@@ -265,101 +367,158 @@ function Financeiro({ patients = [], expenses = [], setExpenses }) {
   const faturamento = useMemo(() => {
     let sum = 0;
     (patients || []).forEach(p => {
-      if (p && p.sessions) {
-        p.sessions.forEach(s => { if (s && s.value) sum += Number(s.value); });
-      }
+      if (p?.sessions) p.sessions.forEach(s => { if (s?.value) sum += Number(s.value); });
     });
     return sum;
   }, [patients]);
 
-  const saidas = useMemo(() => expenses.reduce((acc, c) => acc + Number(c.value || 0), 0), [expenses]);
+  const saidas = useMemo(() => (expenses || []).reduce((acc, c) => acc + Number(c?.value || 0), 0), [expenses]);
 
+  // FIX: gera id único e passa array novo completo para setExpenses
   function handleSave() {
-    if (!desc || !val) { alert("Informe descrição e valor."); return; }
-    const nova = { id: String(Date.now()), desc, value: Number(val), date, cat };
-    setExpenses(prev => [...prev, nova]);
+    if (!desc.trim() || !val) { alert("Informe descrição e valor."); return; }
+    const nova = {
+      id: `exp_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      desc: desc.trim(),
+      value: Number(val),
+      date,
+      cat
+    };
+    setExpenses(prev => {
+      const updated = [...(prev || []), nova];
+      return updated;
+    });
     setM(false);
-    setDesc(""); setVal(""); setDate(todayISO());
+    setDesc(""); setVal(""); setDate(todayISO()); setCat(EXPENSE_CATS[0]);
   }
 
+  const inputStyle = { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8, outline: "none", boxSizing: "border-box" };
+
   return h("div", null,
-    h("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 20 } },
-      h("h2", { style: { fontFamily: "serif", color: P.accent3, fontSize: 24 } }, "Controle Financeiro de Caixa"),
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 } },
+      h("h2", { style: { fontFamily: "serif", color: P.accent3, fontSize: 24, margin: 0 } }, "Controle Financeiro"),
       h(Btn, { onClick: () => setM(true) }, "+ Lançar Despesa")
     ),
-    h("div", { style: { display: "flex", gap: 16, marginBottom: 20 } },
-      h(Card, { style: { flex: 1 } }, h("div", { style: { fontSize: 12, color: P.text3 } }, "Entradas (Procedimentos)"), h("div", { style: { fontSize: 22, color: P.green, marginTop: 4 } }, fmtCurr(faturamento))),
-      h(Card, { style: { flex: 1 } }, h("div", { style: { fontSize: 12, color: P.text3 } }, "Saídas (Despesas)"), h("div", { style: { fontSize: 22, color: P.red, marginTop: 4 } }, fmtCurr(saidas))),
-      h(Card, { style: { flex: 1 } }, h("div", { style: { fontSize: 12, color: P.text3 } }, "Balanço Líquido"), h("div", { style: { fontSize: 22, color: P.accent3, marginTop: 4 } }, fmtCurr(faturamento - saidas)))
-    ),
-    h(Card, { style: { padding: 0, overflow: "hidden" } },
-      h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13.5 } },
-        h("thead", { style: { background: P.bg2, color: P.text3 } }, h("tr", null, h("th", { style: { padding: 12, textAlign: "left" } }, "Descrição"), h("th", { style: { textAlign: "left" } }, "Data"), h("th", { style: { textAlign: "left" } }, "Categoria"), h("th", { style: { padding: 12, textAlign: "right" } }, "Valor"))),
-        h("tbody", null, expenses.map((e, i) => h("tr", { key: e.id || i, style: { borderBottom: `1px solid ${P.border}` } },
-          h("td", { style: { padding: 12, color: P.text } }, e.desc), h("td", { style: { color: P.text2 } }, e.date), h("td", { style: { color: P.text2 } }, e.cat), h("td", { style: { padding: 12, textAlign: "right", color: P.red } }, fmtCurr(e.value))
-        )))
+    h("div", { style: { display: "flex", gap: 16, marginBottom: 20, flexWrap: "wrap" } },
+      h(Card, { style: { flex: 1, minWidth: 140 } },
+        h("div", { style: { fontSize: 12, color: P.text3 } }, "Entradas"),
+        h("div", { style: { fontSize: 22, color: P.green, marginTop: 4, fontWeight: 600 } }, fmtCurr(faturamento))
+      ),
+      h(Card, { style: { flex: 1, minWidth: 140 } },
+        h("div", { style: { fontSize: 12, color: P.text3 } }, "Saídas"),
+        h("div", { style: { fontSize: 22, color: P.red, marginTop: 4, fontWeight: 600 } }, fmtCurr(saidas))
+      ),
+      h(Card, { style: { flex: 1, minWidth: 140 } },
+        h("div", { style: { fontSize: 12, color: P.text3 } }, "Balanço"),
+        h("div", { style: { fontSize: 22, color: faturamento - saidas >= 0 ? P.green : P.red, marginTop: 4, fontWeight: 600 } }, fmtCurr(faturamento - saidas))
       )
     ),
+
+    expenses.length === 0
+      ? h(Card, null, h("p", { style: { color: P.text3, textAlign: "center", margin: 0 } }, "Nenhuma despesa lançada."))
+      : h(Card, { style: { padding: 0, overflow: "hidden" } },
+          h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13.5 } },
+            h("thead", { style: { background: P.bg2 } },
+              h("tr", null,
+                h("th", { style: { padding: 12, textAlign: "left", color: P.text3, fontWeight: 500 } }, "Descrição"),
+                h("th", { style: { padding: 8, textAlign: "left", color: P.text3, fontWeight: 500 } }, "Data"),
+                h("th", { style: { padding: 8, textAlign: "left", color: P.text3, fontWeight: 500 } }, "Categoria"),
+                h("th", { style: { padding: 12, textAlign: "right", color: P.text3, fontWeight: 500 } }, "Valor")
+              )
+            ),
+            h("tbody", null,
+              (expenses || []).map((e, i) => h("tr", { key: e.id || i, style: { borderBottom: `1px solid ${P.border}` } },
+                h("td", { style: { padding: 12, color: P.text } }, e.desc),
+                h("td", { style: { padding: 8, color: P.text2 } }, e.date),
+                h("td", { style: { padding: 8, color: P.text2 } }, e.cat),
+                h("td", { style: { padding: 12, textAlign: "right", color: P.red, fontWeight: 600 } }, fmtCurr(e.value))
+              ))
+            )
+          )
+        ),
+
     h(Modal, { open: m, onClose: () => setM(false), title: "Adicionar Despesa" },
       h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-        h("input", { placeholder: "Descrição do Gasto", value: desc, onChange: e => setDesc(e.target.value), style: { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8 } }),
-        h("input", { type: "number", placeholder: "Valor R$ (Ex: 150)", value: val, onChange: e => setVal(e.target.value), style: { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8 } }),
-        h("input", { type: "date", value: date, onChange: e => setDate(e.target.value), style: { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8 } }),
-        h("select", { value: cat, onChange: e => setCat(e.target.value), style: { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8 } }, EXPENSE_CATS.map(c => h("option", { key: c, value: c }, c))),
-        h(Btn, { onClick: handleSave, style: { marginTop: 10 } }, "Confirmar Lançamento")
+        h("input", { placeholder: "Descrição do gasto", value: desc, onChange: e => setDesc(e.target.value), style: inputStyle }),
+        h("input", { type: "number", placeholder: "Valor (ex: 150.00)", value: val, onChange: e => setVal(e.target.value), style: inputStyle }),
+        h("input", { type: "date", value: date, onChange: e => setDate(e.target.value), style: inputStyle }),
+        h("select", { value: cat, onChange: e => setCat(e.target.value), style: { ...inputStyle, appearance: "auto" } },
+          EXPENSE_CATS.map(c => h("option", { key: c, value: c }, c))
+        ),
+        h(Btn, { onClick: handleSave, style: { marginTop: 4, width: "100%" } }, "Confirmar Lançamento")
       )
     )
   );
 }
 
-// ─── MENSAGENS WHATSAPP ──────────────────────────────────────────────────────
+// ─── MENSAGENS WHATSAPP (SALVAR CORRIGIDO) ────────────────────────────────────
 function MensagensWhatsApp({ settings, setSettings }) {
   const h = createElement;
   const [open, setOpen] = useState(false);
   const [tTitle, setTTitle] = useState("");
   const [tText, setTText] = useState("");
 
-  const listaMsg = useMemo(() => Array.isArray(settings.whatsappMessages) ? settings.whatsappMessages : [], [settings]);
+  // FIX: lê de whatsappMessages com fallback seguro
+  const listaMsg = useMemo(() =>
+    Array.isArray(settings?.whatsappMessages) ? settings.whatsappMessages : [],
+    [settings]
+  );
 
   function handleAddMessage() {
-    if (!tTitle || !tText) { alert("Insira o título e a mensagem."); return; }
-    const novaMsg = { id: String(Date.now()), title: tTitle, text: tText };
-    setSettings({ ...settings, whatsappMessages: [...listaMsg, novaMsg] });
+    if (!tTitle.trim() || !tText.trim()) { alert("Insira o título e a mensagem."); return; }
+    const novaMsg = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      title: tTitle.trim(),
+      text: tText.trim()
+    };
+    // FIX: usa setSettings como função para garantir merge com estado atual
+    setSettings(prev => ({
+      ...prev,
+      whatsappMessages: [...(prev.whatsappMessages || []), novaMsg]
+    }));
     setOpen(false);
     setTTitle(""); setTText("");
   }
 
   function handleDelete(id) {
-    if (confirm("Deseja apagar esse template?")) {
-      setSettings({ ...settings, whatsappMessages: listaMsg.filter(m => m.id !== id) });
-    }
+    if (!confirm("Deseja apagar esse template?")) return;
+    setSettings(prev => ({
+      ...prev,
+      whatsappMessages: (prev.whatsappMessages || []).filter(m => m.id !== id)
+    }));
   }
 
+  const inputStyle = { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8, outline: "none", boxSizing: "border-box" };
+
   return h("div", null,
-    h("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 20 } },
-      h("h2", { style: { fontFamily: "serif", color: P.accent3, fontSize: 24 } }, "Modelos de Mensagens Pós-Procedimento"),
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 } },
+      h("h2", { style: { fontFamily: "serif", color: P.accent3, fontSize: 24, margin: 0 } }, "Modelos de Mensagens Pós-Procedimento"),
       h(Btn, { onClick: () => setOpen(true) }, "+ Novo Template")
     ),
-    h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-      listaMsg.map((m, i) => h(Card, { key: m.id || i },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-          h("div", { style: { fontWeight: 600, color: P.accent2 } }, m.title),
-          h(Btn, { variant: "danger", onClick: () => handleDelete(m.id), style: { padding: "4px 8px", fontSize: 11 } }, "Excluir")
+
+    listaMsg.length === 0
+      ? h(Card, null, h("p", { style: { color: P.text3, textAlign: "center", margin: 0 } }, "Nenhum modelo cadastrado. Crie o primeiro!"))
+      : h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+          listaMsg.map((m, i) => h(Card, { key: m.id || i },
+            h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
+              h("div", { style: { fontWeight: 600, color: P.accent2, fontSize: 15 } }, m.title),
+              h(Btn, { variant: "danger", onClick: () => handleDelete(m.id), style: { padding: "4px 10px", fontSize: 11 } }, "Excluir")
+            ),
+            h("div", { style: { background: P.bg3, padding: 12, borderRadius: 8, color: P.text, fontSize: 13, fontFamily: "monospace", whiteSpace: "pre-wrap", lineHeight: 1.6 } }, m.text)
+          ))
         ),
-        h("div", { style: { background: P.bg3, padding: 12, borderRadius: 8, marginTop: 8, color: P.text, fontSize: 13, fontFamily: "monospace", whiteSpace: "pre-wrap" } }, m.text)
-      ))
-    ),
-    h(Modal, { open, onClose: () => setOpen(false), title: "Adicionar Modelo de Mensagem" },
+
+    h(Modal, { open, onClose: () => { setOpen(false); setTTitle(""); setTText(""); }, title: "Adicionar Modelo de Mensagem" },
       h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-        h("input", { placeholder: "Título (Ex: Pós Preenchimento)", value: tTitle, onChange: e => setTTitle(e.target.value), style: { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8 } }),
-        h("textarea", { placeholder: "Texto da mensagem...", rows: 5, value: tText, onChange: e => setTText(e.target.value), style: { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8, resize: "none" } }),
-        h(Btn, { onClick: handleAddMessage }, "Salvar Template")
+        h("input", { placeholder: "Título (ex: Pós Preenchimento Labial)", value: tTitle, onChange: e => setTTitle(e.target.value), style: inputStyle }),
+        h("textarea", { placeholder: "Texto da mensagem que será enviada via WhatsApp...", rows: 6, value: tText, onChange: e => setTText(e.target.value), style: { ...inputStyle, resize: "vertical", fontFamily: "inherit" } }),
+        h(Btn, { onClick: handleAddMessage, style: { width: "100%" } }, "Salvar Template")
       )
     )
   );
 }
 
-// ─── MAIN APP NÚCLEO ─────────────────────────────────────────────────────────
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const h = createElement;
   const [session, setSession] = useState(null);
@@ -371,7 +530,7 @@ export default function App() {
     { id: "1", name: "Ana Beatriz Martins", phone: "(11) 99234-5678", email: "ana@email.com", status: "vip", sessions: [] }
   ]);
   const [expenses, setExpenses] = useSupaTable("expenses", []);
-  
+
   const [settings, setSettings] = useSettings({
     doctorName: "Dra. Beatriz Schuab",
     doctorTitle: "Biomédica Responsável",
@@ -386,19 +545,48 @@ export default function App() {
       setSession(s);
       setAuthLoading(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => { setSession(s); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+    });
     return () => subscription.unsubscribe();
   }, []);
 
-  if (authLoading) return h("div", { style: { minHeight: "100vh", background: P.bg, display: "flex", alignItems: "center", justifyContent: "center", color: P.text } }, "Iniciando...");
-  if (!session) return h(LoginScreen, { onLogin: () => window.location.reload() });
+  function handleNav(newPage) {
+    // FIX: ao navegar para outra aba, limpa paciente selecionado para evitar prontuário órfão
+    if (newPage !== "prontuario") setCurrentPatient(null);
+    setPage(newPage);
+  }
 
-  return h("div", { style: { display: "flex", background: P.bg, color: P.text, minHeight: "100vh" } },
-    h(Sidebar, { page, onNav: setPage, patients, onSelectPatient: (p) => { setCurrentPatient(p); setPage("prontuario"); } }),
+  function handleSelectPatient(p) {
+    setCurrentPatient(p);
+    setPage("prontuario");
+  }
+
+  if (authLoading) {
+    return h("div", { style: { minHeight: "100vh", background: P.bg, display: "flex", alignItems: "center", justifyContent: "center", color: P.text, fontFamily: "serif", fontSize: 18 } }, "Iniciando HarmonizaPro...");
+  }
+
+  if (!session) {
+    return h(LoginScreen, { onLogin: () => window.location.reload() });
+  }
+
+  return h("div", { style: { display: "flex", background: P.bg, color: P.text, minHeight: "100vh", fontFamily: "system-ui, sans-serif" } },
+    h(Sidebar, {
+      page,
+      onNav: handleNav,
+      patients,
+      onSelectPatient: handleSelectPatient
+    }),
     h("div", { style: { flex: 1, padding: 24, overflowY: "auto" } },
       page === "dashboard" && h(Dashboard, { patients, settings }),
-      page === "pacientes" && h(Patients, { patients, onSelect: (p) => { setCurrentPatient(p); setPage("prontuario"); } }),
-      page === "prontuario" && currentPatient && h(PatientDetail, { patient: currentPatient, onBack: () => { setCurrentPatient(null); setPage("pacientes"); } }),
+      page === "pacientes" && h(Patients, { patients, onSelect: handleSelectPatient }),
+      // FIX: verifica currentPatient antes de renderizar PatientDetail
+      page === "prontuario" && currentPatient
+        ? h(PatientDetail, { patient: currentPatient, onBack: () => { setCurrentPatient(null); setPage("pacientes"); } })
+        : page === "prontuario" && h("div", null,
+            h(Btn, { onClick: () => setPage("pacientes"), variant: "ghost", style: { marginBottom: 16 } }, "← Voltar para Lista"),
+            h(Card, null, h("p", { style: { color: P.text3 } }, "Selecione uma paciente na lista."))
+          ),
       page === "financeiro" && h(Financeiro, { patients, expenses, setExpenses }),
       page === "mensagens" && h(MensagensWhatsApp, { settings, setSettings })
     )
