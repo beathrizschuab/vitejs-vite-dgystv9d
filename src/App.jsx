@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback, createElement, Fragment } from "react";
 
 // ─── SUPABASE CLIENT (via CDN — sem npm install) ──────────────────────────────
-// O createClient é carregado via importmap no index.html
 const SUPA_URL = "https://syxapyqgqrkqkensbbqj.supabase.co";
 const SUPA_KEY = "sb_publishable_f2bBCKBXQoWEZbOPt82grw_KmKSuuo5";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -110,6 +109,7 @@ const INIT_EXPENSES=[
   {id:"1",desc:"Aluguel Barra Olímpica",date:"2026-05-05",cat:"Aluguel",value:4800,status:"Pago",notes:""},
 ];
 
+const safeList = arr => Array.isArray(arr) ? arr : [];
 const initials=n=>n?n.split(" ").slice(0,2).map(w=>w[0]).join("").toUpperCase():"";
 const fmtCurr=v=>"R$"+Number(v).toLocaleString("pt-BR",{minimumFractionDigits:0});
 const parseDMY=s=>{if(!s)return null;const[d,m,y]=s.split("/");return new Date(`${y}-${m}-${d}`);};
@@ -370,7 +370,7 @@ function Dashboard({patients,agenda,onNav,onSelectPatient,settings,returnRules})
     const rulesMap=new Map(returnRules.map(r=>[r.procedure,r]));
     for(const p of patients){
       if(!p.sessions||p.sessions.length===0)continue;
-      const sorted=[...p.sessions].sort((a,b)=>parseDMY(b.date)-parseDMY(a.date));
+      const sorted=[...safeList(p.sessions)].sort((a,b)=>parseDMY(b.date)-parseDMY(a.date));
       const last=sorted[0];
       const r=rulesMap.get(last.procedure);
       if(!r||!r.maintenanceDays)continue;
@@ -481,7 +481,7 @@ function Agenda({patients,agenda,setAgenda,procedures,locations}){
         h(Field,{label:"Paciente"},h(Inp,{value:evt.patientName,onChange:v=>setEvt({...evt,patientName:v}),placeholder:"Nome do paciente"})),
         h(Field,{label:"Procedimento",half:true},h(Sel,{value:evt.procedure,onChange:v=>setEvt({...evt,procedure:v}),options:procedures})),
         h(Field,{label:"Local",half:true},h(Sel,{value:evt.location,onChange:v=>setEvt({...evt,location:v}),options:locations})),
-        h(Field,{label:"Data",third:true},h(Inp,{type:"date",value:evt.date,onChange:v=>setEvt({...evt,date:v}) Triton})),
+        h(Field,{label:"Data",third:true},h(Inp,{type:"date",value:evt.date,onChange:v=>setEvt({...evt,date:v})})),
         h(Field,{label:"Horário",third:true},h(Inp,{placeholder:"09:00",value:evt.time,onChange:v=>setEvt({...evt,time:v})})),
         h(Field,{label:"Duração",third:true},h(Inp,{placeholder:"1 hora",value:evt.duration,onChange:v=>setEvt({...evt,duration:v})})),
         h(Field,{label:"Valor Cobrado (R$)",half:true},h(Inp,{type:"number",placeholder:"0",value:evt.value,onChange:v=>setEvt({...evt,value:v})})),
@@ -535,15 +535,10 @@ function PatientDetail({patient,setPatients,onBack,procedures,locations,products
 
   function saveSess(){
     const nSess={...sess,id:sess.id||String(Date.now()),value:Number(sess.value)||0};
-    const updSess=sess.id?patient.sessions.map(s=>s.id===sess.id?nSess:s):[...window.safeList(patient.sessions),nSess];
+    const updSess=sess.id?safeList(patient.sessions).map(s=>s.id===sess.id?nSess:s):[...safeList(patient.sessions),nSess];
     const updPat={...patient,sessions:updSess,lastVisit:new Date().toLocaleDateString("pt-BR")};
     setPatients(prev=>prev.map(p=>p.id===patient.id?updPat:p));
     setSMod(false);
-  }
-
-  function toggleFmPoint(k,v){
-    const pts=sess.faceMap?.points||{};
-    setSess({...sess,faceMap:{type:fmType,points:{...pts,[k]:v}}});
   }
 
   const alerts=useMemo(()=>{
@@ -552,8 +547,6 @@ function PatientDetail({patient,setPatients,onBack,procedures,locations,products
     if(patient.anamnese?.importantAlerts)arr.push(...patient.anamnese.importantAlerts);
     return arr;
   },[patient]);
-
-  window.safeList=arr=>Array.isArray(arr)?arr:[];
 
   return h("div",null,
     h("div",{style:{display:"flex",alignItems:"center",gap:12,marginBottom:20}},h(Btn,{variant:"ghost",onClick:onBack,style:{padding:"6px 12px"}},"← Voltar"),h("div",{style:{fontSize:13,color:P.text3}},`Ficha clínica / ${patient.name}`)),
@@ -567,8 +560,8 @@ function PatientDetail({patient,setPatients,onBack,procedures,locations,products
     
     tab==="historico"&&h("div",null,
       h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}},h("div",{style:{fontSize:15,fontWeight:600,color:P.accent3}},"Aplicações Realizadas"),h(Btn,{onClick:()=>{setSess({date:todayISO(),procedure:procedures[0]||"",doctor:"",product:products[0]||"",dose:"",region:"",location:locations[0]||"",value:"",paid:true,finStatus:"Pago",payMethod:"Pix",notes:"",evolution:"",faceMap:null});setSMod(true);},variant:"sm"},"+ Registrar Atendimento")),
-      window.safeList(patient.sessions).length===0?h("div",{style:{color:P.text3,textAlign:"center",padding:40}},"Nenhuma sessão clínica gravada."):
-      h("div",{style:{display:"flex",flexDirection:"column",gap:14}},window.safeList(patient.sessions).map((s,i)=>h(Card,{key:s.id||i},
+      safeList(patient.sessions).length===0?h("div",{style:{color:P.text3,textAlign:"center",padding:40}},"Nenhuma sessão clínica gravada."):
+      h("div",{style:{display:"flex",flexDirection:"column",gap:14}},safeList(patient.sessions).map((s,i)=>h(Card,{key:s.id||i},
         h("div",{style:{display:"flex",justifyContent:"space-between"}},h("div",{style:{fontWeight:600,color:P.accent2,fontSize:14.5}},s.procedure),h("div",{style:{fontSize:12,color:P.text3}},s.date)),
         h("div",{style:{display:"flex",gap:24,marginTop:12,flexWrap:"wrap"}},
           s.faceMap?.points&&h("div",null,h(FaceMap,{mapType:s.faceMap.type,points:s.faceMap.points,readOnly:true})),
@@ -664,7 +657,7 @@ function Financeiro({patients,setPatients,expenses,setExpenses,incomes,setIncome
     let sum=0;
     for(const p of patients){
       if(!p.sessions)continue;
-      for(const s of p.sessions){if(s.value&&s.finStatus==="Pago")sum+=Number(s.value);}
+      for(const s of safeList(p.sessions)){if(s.value&&s.finStatus==="Pago")sum+=Number(s.value);}
     }
     return sum;
   },[patients]);
@@ -718,8 +711,7 @@ function Relatorios({patients,onSelectPatient,onNav}){
     
     for (const p of patients || []) {
       if (!p || !p.sessions) continue;
-      // Trata as sessões com segurança como lista
-      const list = Array.isArray(p.sessions) ? p.sessions : [];
+      const list = safeList(p.sessions);
       for (const s of list) {
         if (!s) continue;
         const val = Number(s.value) || 0;
@@ -806,6 +798,45 @@ function Configuracoes({procedures,setProcedures,locations,setLocations,products
   );
 }
 
+function RetornosPendentes({patients,returnRules,onSelectPatient,onNav}){
+  const h=createElement;
+  const rets=useMemo(()=>{
+    const list=[];
+    const rulesMap=new Map((returnRules||[]).map(r=>[r.procedure,r]));
+    for(const p of patients||[]){
+      if(!p.sessions||safeList(p.sessions).length===0)continue;
+      const sorted=[...safeList(p.sessions)].sort((a,b)=>parseDMY(b.date)-parseDMY(a.date));
+      const last=sorted[0];
+      const r=rulesMap.get(last.procedure);
+      if(!r||!r.maintenanceDays)continue;
+      const dLast=parseDMY(last.date);
+      if(!dLast)continue;
+      const dTarget=new Date(dLast.getTime()+(r.maintenanceDays*24*60*60*1000));
+      const days=daysBetween(new Date(),dTarget);
+      list.push({patient:p,proc:last.procedure,date:dTarget.toLocaleDateString("pt-BR"),days});
+    }
+    return list.sort((a,b)=>a.days-b.days);
+  },[patients,returnRules]);
+
+  return h("div",null,
+    h(SectionHeader,{title:"Retornos Pendentes",sub:"Pacientes com manutenção próxima ou vencida"}),
+    rets.length===0
+      ? h(Card,null,h("div",{style:{color:P.text3,textAlign:"center",padding:40}},"Nenhum retorno pendente no momento."))
+      : h("div",{style:{display:"flex",flexDirection:"column",gap:10}},
+          rets.map((r,i)=>h(Card,{key:i,onClick:()=>{onSelectPatient(r.patient);onNav("prontuario");},style:{display:"flex",alignItems:"center",gap:16,padding:16}},
+            h(Avatar,{name:r.patient.name,size:40,idx:i}),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:14,fontWeight:600,color:P.accent3}},r.patient.name),
+              h("div",{style:{fontSize:12,color:P.text3,marginTop:3}},`${r.proc} · Manutenção: ${r.date}`)
+            ),
+            h("div",{style:{fontWeight:600,fontSize:13,color:r.days<=0?P.red:r.days<=15?P.yellow:P.green}},
+              r.days<=0?`Vencido há ${Math.abs(r.days)}d`:`Em ${r.days} dias`
+            )
+          ))
+        )
+  );
+}
+
 // ─── MAIN APP RAIZ ────────────────────────────────────────────────────────────
 export default function App() {
   const h = createElement;
@@ -886,8 +917,4 @@ export default function App() {
       )
     )
   );
-}
-
-function RetornosPendentes() {
-  return createElement("div", null, "Módulo de retornos pendentes.");
 }
