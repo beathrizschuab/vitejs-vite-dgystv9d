@@ -14,34 +14,8 @@ const P = {
   green: "#7aad8a", red: "#c07070", yellow: "#c4a96a", gold: "#855954"
 };
 
-const APPT_STATUS = ["Confirmado", "Aguardando", "Realizado", "Cancelado", "Faltou", "Reagendado"];
-const APPT_STATUS_CFG = {
-  Confirmado: { color: "#7aaed4", bg: "rgba(122,174,212,.14)" },
-  Aguardando: { color: "#c4a96a", bg: "rgba(196,169,106,.14)" },
-  Realizado: { color: "#7aad8a", bg: "rgba(122,173,138,.14)" },
-  Cancelado: { color: "#c07070", bg: "rgba(192,112,112,.14)" },
-  Faltou: { color: "#b07070", bg: "rgba(176,112,112,.12)" },
-  Reagendado: { color: "#9b7aad", bg: "rgba(155,122,173,.13)" }
-};
-
-const PAT_STATUS_CFG = {
-  vip: { label: "VIP ✦", color: "#c4a96a", bg: "rgba(196,169,106,.13)" },
-  active: { label: "Ativa", color: "#7aad8a", bg: "rgba(122,173,138,.12)" },
-  treatment: { label: "Em Tratamento", color: "#7aaed4", bg: "rgba(122,174,212,.12)" },
-  return: { label: "Retorno Pendente", color: "#c4a96a", bg: "rgba(196,169,106,.12)" },
-  inactive: { label: "Inativa", color: "#c07070", bg: "rgba(192,112,112,.12)" },
-  new: { label: "Nova", color: "#9b7aad", bg: "rgba(155,122,173,.12)" }
-};
-
 const EXPENSE_CATS = ["Aluguel", "Marketing", "Fornecedores", "Produtos", "Impostos", "Equipamentos", "Funcionários", "Outros"];
-const ZONE_DEFS = {
-  botox: [{ k: "frontal_c", label: "Frontal", cx: 130, cy: 56, r: 22 }, { k: "glabela_c", label: "Glabela", cx: 130, cy: 95, r: 14 }, { k: "peGalinha_d", label: "Pé Gal. D", cx: 88, cy: 109, r: 10 }, { k: "peGalinha_e", label: "Pé Gal. E", cx: 172, cy: 109, r: 10 }],
-  filler: [{ k: "labio_sup", label: "Lábio Sup", cx: 130, cy: 185, r: 12 }, { k: "labio_inf", label: "Lábio Inf", cx: 130, cy: 200, r: 10 }],
-  thread: [{ k: "malar_thr_d", label: "Malar D", cx: 78, cy: 142, r: 11 }, { k: "malar_thr_e", label: "Malar E", cx: 182, cy: 142, r: 11 }]
-};
-
 const INIT_PROCEDURES = ["Toxina Botulínica", "Preenchimento Labial", "Bioestimulador", "Fio de PDO", "Avaliação Inicial"];
-const INIT_PRODUCTS = ["Botox Allergan 100U", "Juvederm Ultra 1ml", "Sculptra 367mg"];
 const INIT_LOCATIONS = ["Barra Olímpica", "Nova América"];
 
 const initials = n => n ? n.split(" ").slice(0,2).map(w=>w[0]).join("").toUpperCase() : "?";
@@ -60,14 +34,14 @@ function useSupaTable(table, initFallback = []) {
       if (!user || cancelled) return;
       uid.current = user.id;
       supabase.from(table).select("*").eq("user_id", user.id).then(({ data: rows }) => {
-        if (!cancelled && rows) setDataRaw(rows.length > 0 ? rows : initFallback);
+        if (!cancelled && rows && rows.length > 0) setDataRaw(rows);
         setLoading(false);
       });
     });
     return () => { cancelled = true; };
   }, [table]);
 
-  const setData = useCallback(async (valOrFn) => {
+  const setData = useCallback((valOrFn) => {
     setDataRaw(prev => {
       const next = typeof valOrFn === "function" ? valOrFn(prev) : valOrFn;
       if (uid.current) {
@@ -101,10 +75,7 @@ function useSettings(defaults) {
             clinicName: row.clinic_name || defaults.clinicName,
             procedures: row.procedures || defaults.procedures,
             locations: row.locations || defaults.locations,
-            whatsappMessages: row.whatsappMessages || [
-              { id: "1", title: "Revisão de Toxina Botulínica", text: "Olá! Lembrando que já se passaram 14 dias da sua aplicação..." },
-              { id: "2", title: "Manutenção Pós Preenchimento", text: "Olá! Faz 6 meses do seu preenchimento. Vamos agendar uma renovação?" }
-            ]
+            whatsappMessages: row.whatsappMessages || []
           });
         }
         setLoading(false);
@@ -113,7 +84,7 @@ function useSettings(defaults) {
     return () => { cancelled = true; };
   }, []);
 
-  const setData = useCallback(async (valOrFn) => {
+  const setData = useCallback((valOrFn) => {
     setDataRaw(prev => {
       const next = typeof valOrFn === "function" ? valOrFn(prev) : valOrFn;
       if (uid.current) {
@@ -134,7 +105,7 @@ function useSettings(defaults) {
   return [data, setData, loading];
 }
 
-// ─── LOGIN ───────────────────────────────────────────────────────────────────
+// ─── LOGIN SCREEN ───────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -146,8 +117,8 @@ function LoginScreen({ onLogin }) {
     if (!email || !password) { setError("Preencha todos os campos."); return; }
     setLoading(true); setError("");
     const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (err) setError("Acesso recusado. Verifique os dados.");
+    setLoading(true); 
+    if (err) { setError("Acesso recusado. Verifique os dados."); setLoading(false); }
     else onLogin();
   }
 
@@ -168,7 +139,7 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-// ─── COMPONENTES GENÉRICOS DE INTERFACE ──────────────────────────────────────
+// ─── INTERFACE COMPONENTS ───────────────────────────────────────────────────
 function Avatar({ name, size = 36 }) {
   return createElement("div", { style: { width: size, height: size, borderRadius: "50%", background: P.rose, display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.35, fontWeight: 700, color: P.accent3, border: `1px solid ${P.border}` } }, initials(name));
 }
@@ -191,13 +162,12 @@ function Modal({ open, onClose, title, children }) {
   );
 }
 
-// ─── COMPONENTE SIDEBAR (COM BUSCA TOTALMENTE CORRIGIDA) ────────────────────
+// ─── SIDEBAR (BUSCA CORRIGIDA SEM TELA BRANCA) ──────────────────────────────
 function Sidebar({ page, onNav, patients = [], onSelectPatient }) {
   const h = createElement;
   const [q, setQ] = useState("");
   const [openSearch, setOpenSearch] = useState(false);
 
-  // Filtro seguro contra arrays nulos ou vazios
   const filtered = useMemo(() => {
     if (!q) return [];
     return (patients || []).filter(p => p && p.name && p.name.toLowerCase().includes(q.toLowerCase()));
@@ -211,13 +181,9 @@ function Sidebar({ page, onNav, patients = [], onSelectPatient }) {
 
   const menu = [
     { k: "dashboard", l: "Painel", e: "✦" },
-    { k: "agenda", l: "Agenda", e: "📅" },
     { k: "pacientes", l: "Pacientes", e: "👥" },
-    { k: "estoque", l: "Estoque", e: "📦" },
     { k: "financeiro", l: "Financeiro", e: "💰" },
-    { k: "relatorios", l: "Relatórios", e: "📊" },
-    { k: "mensagens", l: "Mensagens WhatsApp", e: "💬" },
-    { k: "config", l: "Configurações", e: "⚙" }
+    { k: "mensagens", l: "Mensagens WhatsApp", e: "💬" }
   ];
 
   return h("div", { style: { width: 240, background: P.bg2, borderRight: `1px solid ${P.border}`, display: "flex", flexDirection: "column", height: "100vh" } },
@@ -244,8 +210,8 @@ function Sidebar({ page, onNav, patients = [], onSelectPatient }) {
   );
 }
 
-// ─── PAINEL DASHBOARD ────────────────────────────────────────────────────────
-function Dashboard({ patients = [], agenda = [], onNav, settings }) {
+// ─── DASHBOARD ──────────────────────────────────────────────────────────────
+function Dashboard({ patients = [], settings }) {
   const h = createElement;
   return h("div", null,
     h("div", { style: { background: P.card, border: `1px solid ${P.border}`, padding: 24, borderRadius: 16, marginBottom: 20 } },
@@ -253,13 +219,41 @@ function Dashboard({ patients = [], agenda = [], onNav, settings }) {
       h("p", { style: { fontSize: 13, color: P.text3, marginTop: 4 } }, `${settings.clinicName} · Painel de Gestão Estética`)
     ),
     h("div", { style: { display: "flex", gap: 16 } },
-      h(Card, { style: { flex: 1 } }, h("div", { style: { fontSize: 12, color: P.text3 } }, "Total Pacientes"), h("div", { style: { fontSize: 24, color: P.accent2, marginTop: 4 } }, patients.length)),
-      h(Card, { style: { flex: 1 } }, h("div", { style: { fontSize: 12, color: P.text3 } }, "Consultas Agendadas"), h("div", { style: { fontSize: 24, color: P.accent2, marginTop: 4 } }, agenda.length))
+      h(Card, { style: { flex: 1 } }, h("div", { style: { fontSize: 12, color: P.text3 } }, "Total Pacientes"), h("div", { style: { fontSize: 24, color: P.accent2, marginTop: 4 } }, patients.length))
     )
   );
 }
 
-// ─── FINANCEIRO (CORRIGIDO SEM TRAVAMENTOS) ──────────────────────────────────
+// ─── PACIENTES (CORRIGIDO ERRO DO ELEMENT) ───────────────────────────────────
+function Patients({ patients = [], onSelect }) {
+  const h = createElement;
+  return h("div", null, 
+    h("h2", { style: { color: P.accent3, marginBottom: 16, fontFamily: "serif", fontSize: 24 } }, "Fichas Clínicas"), 
+    h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+      patients.map(p => h(Card, { key: p.id, onClick: () => onSelect(p), style: { cursor: "pointer", display: "flex", alignItems: "center", gap: 14 } }, 
+        h(Avatar, { name: p.name }),
+        h("div", null,
+          h("div", { style: { color: P.text, fontWeight: 600 } }, p.name),
+          h("div", { style: { color: P.text3, fontSize: 12 } }, p.phone || "Sem telefone")
+        )
+      ))
+    )
+  );
+}
+
+// ─── DETALHE DO PRONTUÁRIO (CORRIGIDO) ───────────────────────────────────────
+function PatientDetail({ patient, onBack }) {
+  const h = createElement;
+  return h("div", null, 
+    h(Btn, { onClick: onBack, variant: "ghost", style: { marginBottom: 16 } }, "← Voltar para Lista"), 
+    h(Card, null, 
+      h("h3", { style: { color: P.accent3, fontFamily: "serif", fontSize: 22, marginBottom: 12 } }, `Prontuário: ${patient.name}`),
+      h("p", { style: { color: P.text2, fontSize: 14 } }, `Contato: ${patient.phone || "Não informado"}`)
+    )
+  );
+}
+
+// ─── FINANCEIRO (SALVAMENTO CORRIGIDO) ───────────────────────────────────────
 function Financeiro({ patients = [], expenses = [], setExpenses }) {
   const h = createElement;
   const [m, setM] = useState(false);
@@ -299,10 +293,10 @@ function Financeiro({ patients = [], expenses = [], setExpenses }) {
       h(Card, { style: { flex: 1 } }, h("div", { style: { fontSize: 12, color: P.text3 } }, "Balanço Líquido"), h("div", { style: { fontSize: 22, color: P.accent3, marginTop: 4 } }, fmtCurr(faturamento - saidas)))
     ),
     h(Card, { style: { padding: 0, overflow: "hidden" } },
-      h("table", { style: { width: "100%", borderCollapse: "collapse", textAling: "left", fontSize: 13.5 } },
-        h("thead", { style: { background: P.bg2, color: P.text3 } }, h("tr", null, h("th", { style: { padding: 12 } }, "Descrição"), h("th", null, "Data"), h("th", null, "Categoria"), h("th", { style: { padding: 12, textAlign: "right" } }, "Valor"))),
+      h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13.5 } },
+        h("thead", { style: { background: P.bg2, color: P.text3 } }, h("tr", null, h("th", { style: { padding: 12, textAlign: "left" } }, "Descrição"), h("th", { style: { textAlign: "left" } }, "Data"), h("th", { style: { textAlign: "left" } }, "Categoria"), h("th", { style: { padding: 12, textAlign: "right" } }, "Valor"))),
         h("tbody", null, expenses.map((e, i) => h("tr", { key: e.id || i, style: { borderBottom: `1px solid ${P.border}` } },
-          h("td", { style: { padding: 12 } }, e.desc), h("td", null, e.date), h("td", null, e.cat), h("td", { style: { padding: 12, textAlign: "right", color: P.red } }, fmtCurr(e.value))
+          h("td", { style: { padding: 12, color: P.text } }, e.desc), h("td", { style: { color: P.text2 } }, e.date), h("td", { style: { color: P.text2 } }, e.cat), h("td", { style: { padding: 12, textAlign: "right", color: P.red } }, fmtCurr(e.value))
         )))
       )
     ),
@@ -318,7 +312,7 @@ function Financeiro({ patients = [], expenses = [], setExpenses }) {
   );
 }
 
-// ─── MENSAGENS WHATSAPP (CORRIGIDO PARA ADICIONAR NOVAS) ─────────────────────
+// ─── MENSAGENS WHATSAPP ──────────────────────────────────────────────────────
 function MensagensWhatsApp({ settings, setSettings }) {
   const h = createElement;
   const [open, setOpen] = useState(false);
@@ -357,7 +351,7 @@ function MensagensWhatsApp({ settings, setSettings }) {
     ),
     h(Modal, { open, onClose: () => setOpen(false), title: "Adicionar Modelo de Mensagem" },
       h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-        h("input", { placeholder: "Título (Ex: Pós Preenchimento 7 dias)", value: tTitle, onChange: e => setTTitle(e.target.value), style: { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8 } }),
+        h("input", { placeholder: "Título (Ex: Pós Preenchimento)", value: tTitle, onChange: e => setTTitle(e.target.value), style: { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8 } }),
         h("textarea", { placeholder: "Texto da mensagem...", rows: 5, value: tText, onChange: e => setTText(e.target.value), style: { width: "100%", padding: 10, background: P.bg3, border: `1px solid ${P.border}`, color: P.text, borderRadius: 8, resize: "none" } }),
         h(Btn, { onClick: handleAddMessage }, "Salvar Template")
       )
@@ -365,30 +359,17 @@ function MensagensWhatsApp({ settings, setSettings }) {
   );
 }
 
-// ─── OUTRAS TELAS SIMPLIFICADAS PARA NÃO-TRAVAMENTO ─────────────────────────
-function Agenda() { return createElement(Card, null, "Módulo de Agenda carregado."); }
-function Patients({ patients, onSelect }) {
-  return createElement("div", null, h("h2", { style: { color: P.accent3, marginBottom: 12 } }, "Pacientes"), patients.map(p => createElement(Card, { key: p.id, onClick: () => onSelect(p), style: { marginBottom: 8, cursor: "pointer" } }, p.name)));
-}
-function PatientDetail({ patient, onBack }) {
-  return createElement("div", null, createElement(Btn, { onClick: onBack, variant: "ghost", style: { marginBottom: 12 } }, "← Voltar"), createElement(Card, null, `Prontuário de ${patient.name}`));
-}
-function Estoque() { return createElement(Card, null, "Módulo de Insumos carregado."); }
-function Relatorios() { return createElement(Card, null, "Módulo de Métricas carregado."); }
-function Configuracoes() { return createElement(Card, null, "Módulo de Configuração estrutural."); }
-
-// ─── NÚCLEO DO SISTEMA ────────────────────────────────────────────────────────
+// ─── MAIN APP NÚCLEO ─────────────────────────────────────────────────────────
 export default function App() {
   const h = createElement;
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [page, setPage] = useState("dashboard");
-  const [currentPatient, setSelectedPatient] = useState(null);
+  const [currentPatient, setCurrentPatient] = useState(null);
 
   const [patients, setPatients] = useSupaTable("patients", [
     { id: "1", name: "Ana Beatriz Martins", phone: "(11) 99234-5678", email: "ana@email.com", status: "vip", sessions: [] }
   ]);
-  const [agenda, setAgenda] = useSupaTable("agenda", []);
   const [expenses, setExpenses] = useSupaTable("expenses", []);
   
   const [settings, setSettings] = useSettings({
@@ -413,17 +394,13 @@ export default function App() {
   if (!session) return h(LoginScreen, { onLogin: () => window.location.reload() });
 
   return h("div", { style: { display: "flex", background: P.bg, color: P.text, minHeight: "100vh" } },
-    h(Sidebar, { page, onNav: setPage, patients, onSelectPatient: (p) => { setSelectedPatient(p); setPage("prontuario"); } }),
+    h(Sidebar, { page, onNav: setPage, patients, onSelectPatient: (p) => { setCurrentPatient(p); setPage("prontuario"); } }),
     h("div", { style: { flex: 1, padding: 24, overflowY: "auto" } },
-      page === "dashboard" && h(Dashboard, { patients, agenda, onNav: setPage, settings }),
-      page === "agenda" && h(Agenda),
-      page === "pacientes" && h(Patients, { patients, onSelect: (p) => { setSelectedPatient(p); setPage("prontuario"); } }),
-      page === "prontuario" && currentPatient && h(PatientDetail, { patient: currentPatient, onBack: () => setSelectedPatient(null) }),
-      page === "estoque" && h(Estoque),
+      page === "dashboard" && h(Dashboard, { patients, settings }),
+      page === "pacientes" && h(Patients, { patients, onSelect: (p) => { setCurrentPatient(p); setPage("prontuario"); } }),
+      page === "prontuario" && currentPatient && h(PatientDetail, { patient: currentPatient, onBack: () => { setCurrentPatient(null); setPage("pacientes"); } }),
       page === "financeiro" && h(Financeiro, { patients, expenses, setExpenses }),
-      page === "relatorios" && h(Relatorios),
-      page === "mensagens" && h(MensagensWhatsApp, { settings, setSettings }),
-      page === "config" && h(Configuracoes)
+      page === "mensagens" && h(MensagensWhatsApp, { settings, setSettings })
     )
   );
 }
